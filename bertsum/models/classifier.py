@@ -3,7 +3,6 @@ import torch.nn as nn
 # from torch.nn.init import xavier_uniform_
 
 class Classifier(nn.Module):
-
     def __init__(self, num_hiddens):
         super(Classifier, self).__init__()
         self.linear1 = nn.Linear(num_hiddens, 1)

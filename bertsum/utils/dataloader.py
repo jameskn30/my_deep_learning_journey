@@ -12,7 +12,7 @@ import re
 
 from utils.vocab import Vocab
 from utils.rouge_cal import get_oracle_ids
-import torchtext
+from pytorch_pretrained_bert import BertTokenizer
 
 # import rouge
 #run this in terminal
@@ -27,8 +27,17 @@ class CNNDailyMailDataset(Dataset):
         self.type = type
         # self.vocab = None
         #init tokenizer
-        self.tokenizer = torchtext.data.get_tokenizer('spacy')
+        # self.tokenizer = torchtext.data.get_tokenizer('spacy')
+
+        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        self.vocab = self.tokenizer.vocab
         self.max_len = 512
+
+        self.CLS_TOKEN = '[CLS]'
+        self.SEP_TOKEN = '[SEP]'
+        self.MASK_TOKEN = '[MASK]'
+        self.PAD = '[PAD]'
+        self.UNK= '[UNK]'
 
         #Loading contraction.json,
         contraction_path = './dataset/contractions.json'
@@ -60,8 +69,8 @@ class CNNDailyMailDataset(Dataset):
             cleaned_articles.append(self._process_text(row['article']))
             cleaned_highlights.append(self._process_text(row['highlights'], remove_stopwords=False))
 
-        print('[IN PROGRESS] building vocab')
-        self.build_vocab(cleaned_articles)
+        # print('[IN PROGRESS] building vocab')
+        # self.build_vocab(cleaned_articles)
 
         print('[IN PROGRESS] batchifying data')
         self.process_data(cleaned_articles, cleaned_highlights)
@@ -148,7 +157,7 @@ class CNNDailyMailDataset(Dataset):
         for article in articles:
             tokens += self.tokenizer(' '.join(article))
         
-        self.vocab = Vocab(tokens, word_freq, reserved_tokens=['<cls>', '<sep>', '<pad>'])
+        self.vocab = Vocab(tokens, word_freq, reserved_tokens=[self.CLS_TOKEN, self.SEP_TOKEN, self.PAD])
     
     def process_data(self, cleaned_articles, cleaned_highlights):
         '''
@@ -176,7 +185,7 @@ class CNNDailyMailDataset(Dataset):
         if pad_id is not None:
             data =  data + [pad_id] * (max_len - len(data))
         else:
-            data =  data + [self.vocab['<pad>']] * (max_len - len(data))
+            data =  data + [self.vocab[self.PAD]] * (max_len - len(data))
 
         return data[:max_len]
     
@@ -215,11 +224,11 @@ class CNNDailyMailDataset(Dataset):
         sentence_count = -1
         oracle_ids = set(get_oracle_ids(article, highlight))
 
-        cls_token = self.vocab['<cls>']
+        cls_token = self.vocab[self.CLS_TOKEN]
         src_text = article.copy()
 
         for i in range(len(src_text)):
-            src_text[i] = '<cls> ' + src_text[i] + ' <sep>'
+            src_text[i] = f'{self.CLS_TOKEN} {src_text[i]} {self.SEP_TOKEN}'
 
             #build labels
             if i in oracle_ids:
@@ -228,7 +237,8 @@ class CNNDailyMailDataset(Dataset):
                 labels.append(0)
 
         for a in src_text:
-            src += self.vocab[a.split()]
+            src += [self.tokenizer.vocab[word] if word in self.tokenizer.vocab else self.tokenizer.vocab[self.UNK]\
+                for word in a.split()]
         
         for i in range(len(src)):
             if src[i] == cls_token:
@@ -238,7 +248,7 @@ class CNNDailyMailDataset(Dataset):
             else:
                 segs.append(1)
 
-        cls_ids = [i for i, t in enumerate(src) if t == self.vocab['<cls>']]
+        cls_ids = [i for i, t in enumerate(src) if t == self.vocab[self.CLS_TOKEN]]
 
         #truncate and pad and convert to tensor    
         src = torch.tensor(self._truncate_or_pad(src, self.max_len), dtype=torch.long)
@@ -257,7 +267,7 @@ class CNNDailyMailDataset(Dataset):
         self.cls_ids.clear()
         self.src_txt.clear()
         self.tgt_txt.clear()
-
+    
     def __len__(self):
         return len(self.src)
     
@@ -268,4 +278,3 @@ class CNNDailyMailDataset(Dataset):
             self.segs[i],
             self.cls_ids[i],
         )
-
